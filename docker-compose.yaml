@@ -1,0 +1,8 @@
+services:
+  kuya_will_bot:
+    build: .
+    container_name: kuya_will_bot
+    restart: unless-stopped
+    environment:
+      API_NINJAS_KEY: "${API_NINJAS_KEY}"
+      DISCORD_WEBHOOK: "${DISCORD_WEBHOOK}"
