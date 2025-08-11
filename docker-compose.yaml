@@ -6,3 +6,4 @@ services:
     environment:
       API_NINJAS_KEY: "${API_NINJAS_KEY}"
       DISCORD_WEBHOOK: "${DISCORD_WEBHOOK}"
+      DISCORD_WEBHOOK_HORO: "${DISCORD_WEBHOOK_HORO}"
