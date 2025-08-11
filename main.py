@@ -1,7 +1,7 @@
 import os
-import time
-import requests
+import asyncio
 from datetime import datetime, timezone
+import aiohttp
 
 api_key = os.getenv("API_NINJAS_KEY")
 discord_webhook = os.getenv("DISCORD_WEBHOOK")
@@ -14,56 +14,59 @@ if not discord_webhook:
 if not discord_webhook_horoscope:
     raise ValueError("DISCORD_WEBHOOK_HORO environment variable not set.")
 
-facts_url = "https://api.api-ninjas.com/v1/facts"
-horoscope_url = "https://api.api-ninjas.com/v1/horoscope"
+FACTS_INTERVAL = 900  # 15 minutes
+HOROSCOPE_INTERVAL = 86400  # 24 hours
 
 signs = {
     "sagittarius": "♐",
     "pisces": "♓"
 }
 
-FACTS_INTERVAL = 900  # 15 minutes
+async def send_horoscopes(session):
+    horoscope_url = "https://api.api-ninjas.com/v1/horoscope"
+    horoscope_fields = []
 
-horoscope_fields = []
-for sign, emoji in signs.items():
-    resp = requests.get(f"{horoscope_url}?zodiac={sign}", headers={'X-Api-Key': api_key})
-    if resp.status_code != requests.codes.ok:
-        horoscope_text = f"Error fetching horoscope: {resp.status_code}"
-    else:
-        horoscope_json = resp.json()
-        horoscope_text = horoscope_json.get("horoscope", "No horoscope available.")
+    for sign, emoji in signs.items():
+        async with session.get(f"{horoscope_url}?zodiac={sign}", headers={'X-Api-Key': api_key}) as resp:
+            if resp.status != 200:
+                horoscope_text = f"Error fetching horoscope: {resp.status}"
+            else:
+                horoscope_json = await resp.json()
+                horoscope_text = horoscope_json.get("horoscope", "No horoscope available.")
+            horoscope_fields.append({
+                "name": f"{emoji} {sign.capitalize()}",
+                "value": horoscope_text,
+                "inline": False
+            })
 
-    horoscope_fields.append({
-        "name": f"{emoji} {sign.capitalize()}",
-        "value": horoscope_text,
-        "inline": False
-    })
+    horoscope_payload = {
+        "embeds": [
+            {
+                "title": "🔮 Daily Horoscopes",
+                "description": "Your fortune for today:",
+                "color": 0xFFD700,
+                "fields": horoscope_fields,
+                "footer": {"text": "Powered by API Ninjas"},
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        ]
+    }
 
-horoscope_payload = {
-    "embeds": [
-        {
-            "title": "🔮 Daily Horoscopes",
-            "description": "Your fortune for today:",
-            "color": 0xFFD700,
-            "fields": horoscope_fields,
-            "footer": {"text": "Powered by API Ninjas"},
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-    ]
-}
+    async with session.post(discord_webhook_horoscope, json=horoscope_payload) as discord_resp:
+        if discord_resp.status != 204:
+            text = await discord_resp.text()
+            raise RuntimeError(f"Error sending horoscope to Discord: {discord_resp.status} {text}")
 
-discord_response = requests.post(discord_webhook_horoscope, json=horoscope_payload)
-if discord_response.status_code != 204:
-    raise RuntimeError(f"Error sending horoscope to Discord: {discord_response.status_code} {discord_response.text}")
+    print("Horoscopes sent to Discord successfully.")
 
-print("Horoscopes sent to Discord successfully.")
+async def send_facts(session):
+    facts_url = "https://api.api-ninjas.com/v1/facts"
+    fact_response = await session.get(facts_url, headers={'X-Api-Key': api_key})
+    if fact_response.status != 200:
+        text = await fact_response.text()
+        raise RuntimeError(f"Error fetching facts: {fact_response.status} {text}")
 
-while True:
-    fact_response = requests.get(facts_url, headers={'X-Api-Key': api_key})
-    if fact_response.status_code != requests.codes.ok:
-        raise RuntimeError(f"Error fetching facts: {fact_response.status_code} {fact_response.text}")
-
-    fact_data = fact_response.json()
+    fact_data = await fact_response.json()
 
     fact_payload = {
         "embeds": [
@@ -84,10 +87,38 @@ while True:
         ]
     }
 
-    discord_response = requests.post(discord_webhook, json=fact_payload)
-    if discord_response.status_code != 204:
-        raise RuntimeError(f"Error sending fact to Discord: {discord_response.status_code} {discord_response.text}")
+    discord_response = await session.post(discord_webhook, json=fact_payload)
+    if discord_response.status != 204:
+        text = await discord_response.text()
+        raise RuntimeError(f"Error sending fact to Discord: {discord_response.status} {text}")
 
     print("Fact sent to Discord successfully.")
-    time.sleep(FACTS_INTERVAL)
+
+async def horoscope_task():
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                await send_horoscopes(session)
+            except Exception as e:
+                print(f"Horoscope task error: {e}")
+            await asyncio.sleep(HOROSCOPE_INTERVAL)
+
+async def facts_task():
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                await send_facts(session)
+            except Exception as e:
+                print(f"Facts task error: {e}")
+            await asyncio.sleep(FACTS_INTERVAL)
+
+async def main():
+    # Run both tasks concurrently
+    await asyncio.gather(
+        horoscope_task(),
+        facts_task()
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
