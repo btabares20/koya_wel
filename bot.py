@@ -1,11 +1,12 @@
 import os
+import asyncio
 import requests
 import discord
 from discord import app_commands
-from dotenv import load_dotenv
+from fastapi import FastAPI
 from datetime import datetime, timezone
+import uvicorn
 
-load_dotenv()
 API_KEY = os.getenv("API_NINJAS_KEY")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
@@ -16,7 +17,12 @@ intents = discord.Intents.default()
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
-# /facts command
+app = FastAPI()
+
+@app.get("/")
+async def root():
+    return {"status": "Bot is running"}
+
 @tree.command(name="facts", description="Get a random fact")
 async def facts_command(interaction: discord.Interaction):
     resp = requests.get(FACTS_URL, headers={"X-Api-Key": API_KEY})
@@ -34,8 +40,7 @@ async def facts_command(interaction: discord.Interaction):
     embed.set_footer(text="Powered by Koya Wel")
     await interaction.response.send_message(embed=embed)
 
-# /horos command
-@tree.command(name="horos", description="Get today's horoscope for your sign")
+@tree.command(name="horoscope", description="Get today's horoscope for your sign")
 @app_commands.describe(sign="Your zodiac sign (e.g., aries, taurus, sagittarius)")
 async def horos_command(interaction: discord.Interaction, sign: str):
     resp = requests.get(f"{HOROSCOPE_URL}?zodiac={sign.lower()}", headers={"X-Api-Key": API_KEY})
@@ -56,7 +61,19 @@ async def horos_command(interaction: discord.Interaction, sign: str):
 
 @bot.event
 async def on_ready():
-    await tree.sync()  # Sync slash commands
+    await tree.sync()
     print(f"Bot logged in as {bot.user}")
 
-bot.run(DISCORD_BOT_TOKEN)
+async def start_discord_bot():
+    await bot.start(DISCORD_BOT_TOKEN)
+
+if __name__ == "__main__":
+    import threading
+
+    def run_fastapi():
+        port = int(os.environ.get("PORT", 8000))
+        uvicorn.run(app, host="0.0.0.0", port=port)
+
+    threading.Thread(target=run_fastapi, daemon=True).start()
+    asyncio.run(start_discord_bot())
+
