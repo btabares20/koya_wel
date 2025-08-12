@@ -2,10 +2,12 @@ import os
 import asyncio
 import requests
 import discord
+from contextlib import asynccontextmanager
 from discord import app_commands
 from fastapi import FastAPI
 from datetime import datetime, timezone
 import uvicorn
+import httpx
 
 API_KEY = os.getenv("API_NINJAS_KEY")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -19,9 +21,33 @@ tree = app_commands.CommandTree(bot)
 
 app = FastAPI()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(ping_self())
+    yield  
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+async def ping_self():
+    while True:
+        try:
+            url = os.getenv("APP_URL", f"http://localhost:{os.environ.get('PORT', 8000)}")
+            async with httpx.AsyncClient() as client:
+                await client.get(url)
+            print(f"Pinged self at {url}")
+        except Exception as e:
+            print(f"Self-ping failed: {e}")
+        await asyncio.sleep(10 * 60) # 10 minutes
+
+app.router.lifespan_context = lifespan
+
 @app.get("/")
 async def root():
     return {"status": "Bot is running"}
+
 
 @tree.command(name="facts", description="Get a random fact")
 async def facts_command(interaction: discord.Interaction):

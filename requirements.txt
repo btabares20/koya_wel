@@ -4,3 +4,4 @@ discord
 dotenv
 fastapi
 uvicorn
+httpx
